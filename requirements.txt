@@ -8,5 +8,4 @@ scipy==1.13.1
 requests==2.32.2
 python-multipart==0.0.9
 python-dotenv==1.0.1
-redis==5.0.8          # 新增：Redis缓存
-alpha_vantage==2.3.1  # 新增：股票搜索接口
+alpha_vantage==2.3.1  # 保留股票搜索接口依赖
