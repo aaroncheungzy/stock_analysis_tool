@@ -14,7 +14,7 @@ import logging
 import warnings
 import json
 from dotenv import load_dotenv
-from utils import redis_client, get_cache, set_cache, search_stocks  # 导入工具函数
+from utils import search_stocks  # 仅导入股票搜索函数（移除 Redis 相关）
 
 # 配置
 load_dotenv()
@@ -44,21 +44,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 定义请求参数模型
+# 定义请求参数模型（移除 refresh_cache 字段）
 class AnalysisRequest(BaseModel):
     ticker: str          # 股票代码
     target_change: float # 目标涨跌幅
     period: str = "max"  # 数据周期
-    refresh_cache: bool = False  # 是否强制刷新缓存
 
-# 股票搜索接口（新增）
+# 股票搜索接口（保留）
 @app.get("/search-stocks", summary="股票搜索（模糊查询）")
 async def search_stocks_api(keyword: str = Query(..., min_length=1)):
     """根据关键词搜索股票（支持股票名称、代码模糊查询）"""
     results = search_stocks(keyword)
     return {"success": True, "data": results}
 
-# 分析器类（新增缓存逻辑）
+# 分析器类（移除缓存相关逻辑）
 class StockVolatilityAnalyzer:
     def __init__(self, ticker, target_change, period='max'):
         self.ticker = ticker
@@ -192,7 +191,7 @@ class StockVolatilityAnalyzer:
             plt.axhline(y=0, color='black', linestyle='-', alpha=0.5)
         return self.plot_to_base64(_plot)
 
-    # 执行完整分析（新增缓存逻辑）
+    # 执行完整分析（移除缓存逻辑）
     def run(self):
         if not self.fetch_data():
             raise HTTPException(status_code=400, detail=f"无法获取 {self.ticker} 的数据")
@@ -221,31 +220,17 @@ class StockVolatilityAnalyzer:
             "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
-# 核心分析接口（新增缓存逻辑）
+# 核心分析接口（移除缓存相关逻辑）
 @app.post("/analyze", summary="股票涨跌幅分析")
 async def analyze_stock(request: AnalysisRequest):
     try:
-        # 生成缓存Key（基于核心参数）
-        cache_key = f"stock_analysis:{request.ticker}:{request.target_change}:{request.period}"
-        
-        # 检查缓存（如果不强制刷新）
-        if not request.refresh_cache:
-            cached_data = get_cache(cache_key)
-            if cached_data:
-                logging.info(f"从缓存获取 {cache_key} 的分析结果")
-                return {"success": True, "data": json.loads(cached_data)}
-        
-        # 执行分析
+        # 直接执行分析（无缓存逻辑）
         analyzer = StockVolatilityAnalyzer(
             ticker=request.ticker.strip(),
             target_change=request.target_change,
             period=request.period.strip()
         )
         result = analyzer.run()
-        
-        # 存入缓存（序列化为JSON字符串）
-        set_cache(cache_key, json.dumps(result).encode('utf-8'), expire_seconds=86400)
-        logging.info(f"分析结果已缓存至 {cache_key}")
         
         return {"success": True, "data": result}
     except HTTPException as e:
@@ -254,14 +239,12 @@ async def analyze_stock(request: AnalysisRequest):
         logging.error(f"分析失败：{str(e)}")
         return {"success": False, "message": f"服务器错误：{str(e)}"}
 
-# 健康检查接口
+# 健康检查接口（移除 Redis 状态检查）
 @app.get("/health", summary="健康检查")
 async def health_check():
-    redis_status = "connected" if redis_client and redis_client.ping() else "disconnected"
     return {
         "status": "healthy",
-        "message": "API 服务正常运行",
-        "redis_status": redis_status
+        "message": "API 服务正常运行"
     }
 
 # 本地运行入口
