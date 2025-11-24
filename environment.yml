@@ -1,0 +1,14 @@
+name: environment
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - psutil
+  - toolz
+  - matplotlib
+  - requests
+  - pandas
+  - yfinance
+  - scipy
+  - seaborn
