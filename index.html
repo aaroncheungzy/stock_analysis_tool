@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票涨跌幅分析工具（增强版）</title>
+    <!-- 外部依赖 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <!-- 自定义样式 -->
+    <style>
+        .chart-container { height: 400px; margin: 20px 0; position: relative; }
+        .loading { display: none; text-align: center; padding: 50px; }
+        .chart-loading { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
+        .result-section { display: none; margin-top: 30px; }
+        .error-alert { display: none; margin-top: 15px; padding: 15px; background: #fef2f2; color: #dc2626; border-radius: 8px; }
+        .search-results { position: absolute; z-index: 50; width: 100%; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e5e7eb; border-radius: 0.375rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .search-result-item { padding: 0.75rem; cursor: pointer; hover:bg-gray-50; }
+        .search-result-item:hover { background-color: #f3f4f6; }
+        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 max-w-6xl mx-auto p-4 md:p-8">
+    <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">📊 股票涨跌幅分析工具（增强版）</h1>
+
+    <!-- 错误提示 -->
+    <div class="error-alert" id="errorAlert"></div>
+
+    <!-- 参数输入表单 -->
+    <div class="bg-white rounded-xl shadow-md p-6 md:p-8 mb-8 relative">
+        <h2 class="text-xl font-semibold mb-6">输入分析参数</h2>
+        <form id="analysisForm" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 股票代码（带搜索功能） -->
+            <div class="relative">
+                <label for="ticker" class="block text-sm font-medium text-gray-700 mb-1">股票代码/名称（支持搜索）</label>
+                <input 
+                    type="text" 
+                    id="ticker" 
+                    name="ticker" 
+                    placeholder="如 AAPL、招商银行、600036.SS" 
+                    required
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                <!-- 搜索结果下拉框 -->
+                <div class="search-results" id="searchResults"></div>
+            </div>
+
+            <!-- 目标涨跌幅 -->
+            <div>
+                <label for="targetChange" class="block text-sm font-medium text-gray-700 mb-1">目标涨跌幅(%)</label>
+                <input 
+                    type="number" 
+                    id="targetChange" 
+                    name="targetChange" 
+                    step="0.1" 
+                    placeholder="如 5（上涨5%）、-3（下跌3%）" 
+                    required
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+            </div>
+
+            <!-- 数据周期（保留更多选项） -->
+            <div>
+                <label for="period" class="block text-sm font-medium text-gray-700 mb-1">数据周期</label>
+                <select 
+                    id="period" 
+                    name="period" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                    <option value="max">全部历史</option>
+                    <option value="10y">近10年</option>
+                    <option value="5y">近5年</option>
+                    <option value="2y">近2年</option>
+                    <option value="1y">近1年</option>
+                    <option value="ytd">今年至今</option>
+                    <option value="6mo">近6个月</option>
+                    <option value="3mo">近3个月</option>
+                    <option value="1mo">近1个月</option>
+                    <option value="14d">近2周</option>
+                    <option value="7d">近1周</option>
+                    <option value="5d">近5天</option>
+                    <option value="1d">近1天</option>
+                </select>
+            </div>
+
+            <!-- 移除「强制刷新数据」复选框 -->
+
+            <!-- 提交按钮 -->
+            <div class="md:col-span-3">
+                <button 
+                    type="submit" 
+                    class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 transition-colors duration-300"
+                >
+                    开始分析
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 加载中提示 -->
+    <div class="loading" id="loading">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+        <p>正在分析数据，请稍候...</p>
+    </div>
+
+    <!-- 分析结果展示区 -->
+    <div class="result-section" id="resultSection">
+        <!-- 导出按钮组 -->
+        <div class="btn-group">
+            <button id="exportPdfBtn" class="bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors">
+                📄 导出PDF报告
+            </button>
+            <button id="exportExcelBtn" class="bg-orange-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-orange-700 transition-colors">
+                📊 导出Excel数据
+            </button>
+        </div>
+
+        <!-- 分析概要 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">分析概要</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">股票代码</p>
+                    <p class="text-lg font-medium" id="summaryTicker"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">股票名称</p>
+                    <p class="text-lg font-medium" id="summaryStockName"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">目标涨跌幅</p>
+                    <p class="text-lg font-medium" id="summaryChange"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">信号点数量</p>
+                    <p class="text-lg font-medium" id="summarySignalCount"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">分析时间范围</p>
+                    <p class="text-lg font-medium" id="summaryDateRange"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">报告生成时间</p>
+                    <p class="text-lg font-medium" id="summaryGeneratedAt"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">市场区域</p>
+                    <p class="text-lg font-medium" id="summaryRegion"></p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <p class="text-sm text-gray-500">交易货币</p>
+                    <p class="text-lg font-medium" id="summaryCurrency"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 价格走势 + 信号点 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">价格走势与信号点</h2>
+            <div class="chart-container">
+                <!-- 图表加载动画 -->
+                <div class="chart-loading" id="priceChartLoading">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
+                    <p>图表加载中...</p>
+                </div>
+                <img id="priceChart" class="w-full h-auto rounded-lg" onload="hideChartLoading('priceChartLoading')" />
+            </div>
+        </div>
+
+        <!-- 箱线图 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">不同周期收益率分布（箱线图）</h2>
+            <div class="chart-container">
+                <div class="chart-loading" id="boxplotChartLoading">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
+                    <p>图表加载中...</p>
+                </div>
+                <img id="boxplotChart" class="w-full h-auto rounded-lg" onload="hideChartLoading('boxplotChartLoading')" />
+            </div>
+        </div>
+
+        <!-- 收益率分布直方图 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">收益率分布直方图</h2>
+            <div class="chart-container">
+                <div class="chart-loading" id="distributionChartLoading">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
+                    <p>图表加载中...</p>
+                </div>
+                <img id="distributionChart" class="w-full h-auto rounded-lg" onload="hideChartLoading('distributionChartLoading')" />
+            </div>
+        </div>
+
+        <!-- 累计收益率 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">平均累计收益率</h2>
+            <div class="chart-container">
+                <div class="chart-loading" id="cumulativeChartLoading">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
+                    <p>图表加载中...</p>
+                </div>
+                <img id="cumulativeChart" class="w-full h-auto rounded-lg" onload="hideChartLoading('cumulativeChartLoading')" />
+            </div>
+        </div>
+
+        <!-- 统计表格 -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">统计分析结果</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200" id="statsTable">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">周期</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">样本数</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">均值(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">中位数(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">标准差(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最小值(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最大值(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">正收益比例(%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">偏度</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">峰度</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="statsTableBody">
+                        <!-- 动态插入数据 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 后端 API 地址（替换为你的 Render 服务域名）
+        const API_URL = "https://你的-render服务名.onrender.com";
+        let currentResult = null; // 存储当前分析结果（用于导出）
+
+        // DOM 元素
+        const form = document.getElementById('analysisForm');
+        const tickerInput = document.getElementById('ticker');
+        const searchResults = document.getElementById('searchResults');
+        const loading = document.getElementById('loading');
+        const resultSection = document.getElementById('resultSection');
+        const errorAlert = document.getElementById('errorAlert');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+
+        // 1. 股票搜索功能
+        tickerInput.addEventListener('input', async (e) => {
+            const keyword = e.target.value.trim();
+            if (keyword.length < 1) {
+                searchResults.innerHTML = '';
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            try {
+                // 调用后端搜索接口
+                const response = await fetch(`${API_URL}/search-stocks?keyword=${encodeURIComponent(keyword)}`);
+                const data = await response.json();
+                if (!data.success || data.data.length === 0) {
+                    searchResults.innerHTML = '<div class="search-result-item text-gray-500">未找到匹配股票</div>';
+                    searchResults.style.display = 'block';
+                    return;
+                }
+
+                // 渲染搜索结果
+                let html = '';
+                data.data.forEach(stock => {
+                    html += `
+                        <div class="search-result-item border-b border-gray-100" data-symbol="${stock.symbol}">
+                            <div class="font-medium">${stock.symbol} - ${stock.name}</div>
+                            <div class="text-sm text-gray-500">${stock.region} · ${stock.currency} · ${stock.type}</div>
+                        </div>
+                    `;
+                });
+                searchResults.innerHTML = html;
+                searchResults.style.display = 'block';
+            } catch (error) {
+                console.error('搜索失败：', error);
+                searchResults.innerHTML = '<div class="search-result-item text-red-500">搜索服务异常，请稍后再试</div>';
+                searchResults.style.display = 'block';
+            }
+        });
+
+        // 选择搜索结果
+        searchResults.addEventListener('click', (e) => {
+            const item = e.target.closest('.search-result-item');
+            if (item && item.dataset.symbol) {
+                tickerInput.value = item.dataset.symbol;
+                searchResults.innerHTML = '';
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // 点击页面其他区域关闭搜索结果
+        document.addEventListener('click', (e) => {
+            if (!tickerInput.contains(e.target) && !searchResults.contains(e.target)) {
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // 2. 表单提交处理（移除 refresh_cache 参数）
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+            const params = {
+                ticker: formData.get('ticker').trim(),
+                target_change: parseFloat(formData.get('targetChange')),
+                period: formData.get('period')
+                // 移除 refresh_cache 参数
+            };
+
+            // 显示加载中，隐藏错误和结果
+            loading.style.display = 'block';
+            errorAlert.style.display = 'none';
+            resultSection.style.display = 'none';
+
+            try {
+                // 调用后端分析接口
+                const response = await fetch(`${API_URL}/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(params)
+                });
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message || '分析失败');
+                }
+
+                // 存储当前结果（用于导出）
+                currentResult = data.data;
+                // 渲染结果
+                renderResult(data.data);
+            } catch (error) {
+                // 显示错误
+                errorAlert.textContent = `❌ ${error.message}`;
+                errorAlert.style.display = 'block';
+            } finally {
+                // 隐藏加载中
+                loading.style.display = 'none';
+            }
+        });
+
+        // 3. 渲染分析结果
+        function renderResult(result) {
+            // 填充概要信息
+            document.getElementById('summaryTicker').textContent = result.ticker;
+            document.getElementById('summaryStockName').textContent = result.ticker_info.shortName || '未知名称';
+            document.getElementById('summaryChange').textContent = `${result.target_change}%`;
+            document.getElementById('summarySignalCount').textContent = `${result.signal_count} 个`;
+            document.getElementById('summaryDateRange').textContent = `${result.date_range.start} 至 ${result.date_range.end}`;
+            document.getElementById('summaryGeneratedAt').textContent = result.generated_at;
+            document.getElementById('summaryRegion').textContent = result.ticker_info.region || '未知';
+            document.getElementById('summaryCurrency').textContent = result.ticker_info.currency || '未知';
+
+            // 重置图表加载动画
+            document.querySelectorAll('.chart-loading').forEach(el => el.style.display = 'flex');
+            // 填充图表
+            document.getElementById('priceChart').src = result.charts.price_with_signals;
+            document.getElementById('boxplotChart').src = result.charts.boxplot_comparison;
+            document.getElementById('distributionChart').src = result.charts.returns_distribution;
+            document.getElementById('cumulativeChart').src = result.charts.cumulative_returns;
+
+            // 填充统计表格
+            const tableBody = document.getElementById('statsTableBody');
+            tableBody.innerHTML = '';
+            const sortedPeriods = Object.keys(result.stats).sort((a, b) => a - b);
+            sortedPeriods.forEach(period => {
+                const stats = result.stats[period];
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${period}日</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.count}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.mean}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.median}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.std}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.min}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.max}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.positive_rate}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.skewness}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stats.kurtosis}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            // 显示结果区域
+            resultSection.style.display = 'block';
+        }
+
+        // 4. 图表加载完成后隐藏加载动画
+        function hideChartLoading(loadingId) {
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        // 5. 导出PDF报告
+        exportPdfBtn.addEventListener('click', async () => {
+            if (!currentResult) return alert('暂无分析结果可导出');
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('l', 'mm', 'a4'); // 横向A4纸
+
+            // 添加标题
+            pdf.setFontSize(18);
+            pdf.text(`股票涨跌幅分析报告 - ${currentResult.ticker}`, 10, 20);
+
+            // 添加概要信息
+            pdf.setFontSize(12);
+            pdf.text('一、分析概要', 10, 40);
+            const summaryText = [
+                `股票代码：${currentResult.ticker}`,
+                `股票名称：${currentResult.ticker_info.shortName || '未知名称'}`,
+                `目标涨跌幅：${currentResult.target_change}%`,
+                `信号点数量：${currentResult.signal_count} 个`,
+                `分析时间范围：${currentResult.date_range.start} 至 ${currentResult.date_range.end}`,
+                `报告生成时间：${currentResult.generated_at}`
+            ];
+            summaryText.forEach((text, index) => {
+                pdf.text(text, 20, 55 + index * 8);
+            });
+
+            // 添加统计表格（转换为图片）
+            pdf.text('二、统计分析结果', 10, 100);
+            const table = document.getElementById('statsTable');
+            await html2canvas(table, { scale: 2 }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                pdf.addImage(imgData, 'PNG', 10, 110, 270, 80); // 适应A4宽度
+            });
+
+            // 添加图表（价格走势）
+            pdf.addPage();
+            pdf.text('三、价格走势与信号点', 10, 20);
+            const priceImg = document.getElementById('priceChart');
+            pdf.addImage(priceImg.src, 'PNG', 10, 30, 270, 120);
+
+            // 添加箱线图
+            pdf.addPage();
+            pdf.text('四、不同周期收益率分布（箱线图）', 10, 20);
+            const boxplotImg = document.getElementById('boxplotChart');
+            pdf.addImage(boxplotImg.src, 'PNG', 10, 30, 270, 120);
+
+            // 添加直方图和累计收益率图
+            pdf.addPage();
+            pdf.text('五、收益率分布直方图', 10, 20);
+            const distImg = document.getElementById('distributionChart');
+            pdf.addImage(distImg.src, 'PNG', 10, 30, 270, 120);
+
+            pdf.addPage();
+            pdf.text('六、平均累计收益率', 10, 20);
+            const cumImg = document.getElementById('cumulativeChart');
+            pdf.addImage(cumImg.src, 'PNG', 10, 30, 270, 120);
+
+            // 保存PDF
+            pdf.save(`${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析报告.pdf`);
+        });
+
+        // 6. 导出Excel数据
+        exportExcelBtn.addEventListener('click', () => {
+            if (!currentResult) return alert('暂无分析结果可导出');
+
+            // 创建工作簿
+            const wb = XLSX.utils.book_new();
+
+            // 1. 概要信息工作表
+            const summaryData = [
+                ['项目', '值'],
+                ['股票代码', currentResult.ticker],
+                ['股票名称', currentResult.ticker_info.shortName || '未知名称'],
+                ['目标涨跌幅(%)', currentResult.target_change],
+                ['信号点数量', currentResult.signal_count],
+                ['分析开始日期', currentResult.date_range.start],
+                ['分析结束日期', currentResult.date_range.end],
+                ['报告生成时间', currentResult.generated_at],
+                ['市场区域', currentResult.ticker_info.region || '未知'],
+                ['交易货币', currentResult.ticker_info.currency || '未知']
+            ];
+            const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+            XLSX.utils.book_append_sheet(wb, summaryWs, '分析概要');
+
+            // 2. 统计结果工作表
+            const statsHeaders = ['周期(日)', '样本数', '均值(%)', '中位数(%)', '标准差(%)', '最小值(%)', '最大值(%)', '正收益比例(%)', '偏度', '峰度'];
+            const statsData = [statsHeaders];
+            const sortedPeriods = Object.keys(currentResult.stats).sort((a, b) => a - b);
+            sortedPeriods.forEach(period => {
+                const stats = currentResult.stats[period];
+                statsData.push([
+                    period,
+                    stats.count,
+                    stats.mean,
+                    stats.median,
+                    stats.std,
+                    stats.min,
+                    stats.max,
+                    stats.positive_rate,
+                    stats.skewness,
+                    stats.kurtosis
+                ]);
+            });
+            const statsWs = XLSX.utils.aoa_to_sheet(statsData);
+            XLSX.utils.book_append_sheet(wb, statsWs, '统计结果');
+
+            // 3. 原始收益率数据工作表
+            const returnsData = [['周期(日)', '收益率(%)']];
+            sortedPeriods.forEach(period => {
+                const returns = currentResult.future_returns[period];
+                returns.forEach(ret => {
+                    returnsData.push([period, ret.toFixed(2)]);
+                });
+            });
+            const returnsWs = XLSX.utils.aoa_to_sheet(returnsData);
+            XLSX.utils.book_append_sheet(wb, returnsWs, '原始收益率数据');
+
+            // 保存Excel文件
+            XLSX.writeFile(wb, `${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析数据.xlsx`);
+        });
+    </script>
+</body>
+</html>
