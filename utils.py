@@ -1,4 +1,3 @@
-import redis
 import os
 import requests
 from dotenv import load_dotenv
@@ -7,17 +6,7 @@ import logging
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Redis连接初始化
-redis_client = None
-if os.getenv("REDIS_URL"):
-    try:
-        redis_client = redis.from_url(os.getenv("REDIS_URL"), decode_responses=False)
-        # 测试连接
-        redis_client.ping()
-        logger.info("Redis缓存连接成功")
-    except Exception as e:
-        logger.error(f"Redis连接失败：{str(e)}")
-        redis_client = None
+# 移除 Redis 相关代码
 
 # Alpha Vantage 股票搜索（支持模糊查询）
 def search_stocks(keyword: str) -> list:
@@ -61,32 +50,3 @@ def search_stocks(keyword: str) -> list:
     except Exception as e:
         logger.error(f"股票搜索失败：{str(e)}")
         return []
-
-# 缓存工具函数
-def get_cache(key: str):
-    """从Redis获取缓存"""
-    if not redis_client:
-        return None
-    try:
-        return redis_client.get(key)
-    except Exception as e:
-        logger.error(f"获取缓存失败：{str(e)}")
-        return None
-
-def set_cache(key: str, value: bytes, expire_seconds: int = 86400):
-    """设置Redis缓存（默认过期1天）"""
-    if not redis_client:
-        return
-    try:
-        redis_client.setex(key, expire_seconds, value)
-    except Exception as e:
-        logger.error(f"设置缓存失败：{str(e)}")
-
-def delete_cache(key: str):
-    """删除Redis缓存"""
-    if not redis_client:
-        return
-    try:
-        redis_client.delete(key)
-    except Exception as e:
-        logger.error(f"删除缓存失败：{str(e)}")
