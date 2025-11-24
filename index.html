@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>股票涨跌幅分析工具（增强版）</title>
+    <title>股票涨跌幅分析工具（全 GitHub 部署）</title>
     <!-- 外部依赖 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -18,13 +18,13 @@
         .result-section { display: none; margin-top: 30px; }
         .error-alert { display: none; margin-top: 15px; padding: 15px; background: #fef2f2; color: #dc2626; border-radius: 8px; }
         .search-results { position: absolute; z-index: 50; width: 100%; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e5e7eb; border-radius: 0.375rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .search-result-item { padding: 0.75rem; cursor: pointer; hover:bg-gray-50; }
+        .search-result-item { padding: 0.75rem; cursor: pointer; }
         .search-result-item:hover { background-color: #f3f4f6; }
-        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 max-w-6xl mx-auto p-4 md:p-8">
-    <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">📊 股票涨跌幅分析工具（增强版）</h1>
+    <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">📊 股票涨跌幅分析工具（全 GitHub 部署）</h1>
 
     <!-- 错误提示 -->
     <div class="error-alert" id="errorAlert"></div>
@@ -62,7 +62,7 @@
                 >
             </div>
 
-            <!-- 数据周期（保留更多选项） -->
+            <!-- 数据周期（更多选项） -->
             <div>
                 <label for="period" class="block text-sm font-medium text-gray-700 mb-1">数据周期</label>
                 <select 
@@ -86,8 +86,6 @@
                 </select>
             </div>
 
-            <!-- 移除「强制刷新数据」复选框 -->
-
             <!-- 提交按钮 -->
             <div class="md:col-span-3">
                 <button 
@@ -103,7 +101,7 @@
     <!-- 加载中提示 -->
     <div class="loading" id="loading">
         <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-        <p>正在分析数据，请稍候...</p>
+        <p>正在分析数据，请稍候（首次运行可能需要10秒）...</p>
     </div>
 
     <!-- 分析结果展示区 -->
@@ -121,7 +119,7 @@
         <!-- 分析概要 -->
         <div class="bg-white rounded-xl shadow-md p-6 mb-8">
             <h2 class="text-xl font-semibold mb-4">分析概要</h2>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-gray-50 p-4 rounded-lg">
                     <p class="text-sm text-gray-500">股票代码</p>
                     <p class="text-lg font-medium" id="summaryTicker"></p>
@@ -234,8 +232,16 @@
     </div>
 
     <script>
-        // 后端 API 地址（替换为你的 Render 服务域名）
-        const API_URL = "https://你的-render服务名.onrender.com";
+        // ==================== 关键配置（必须修改！）====================
+        const GITHUB_USERNAME = "你的GitHub用户名";  // 替换为你的GitHub用户名（如：octocat）
+        const REPO_NAME = "stock-analysis-tool";    // 替换为你的仓库名（如：stock-analysis-tool）
+        // =============================================================
+
+        // GitHub Functions API 地址（自动拼接）
+        const API_BASE_URL = `https://${GITHUB_USERNAME}.github.io/${REPO_NAME}/api`;
+        const ANALYZE_API = `${API_BASE_URL}/analyze`;
+        const SEARCH_API = `${API_BASE_URL}/search-stocks`;
+
         let currentResult = null; // 存储当前分析结果（用于导出）
 
         // DOM 元素
@@ -258,10 +264,17 @@
             }
 
             try {
-                // 调用后端搜索接口
-                const response = await fetch(`${API_URL}/search-stocks?keyword=${encodeURIComponent(keyword)}`);
+                // 调用 GitHub Functions 搜索接口
+                const response = await fetch(`${SEARCH_API}?keyword=${encodeURIComponent(keyword)}`);
                 const data = await response.json();
-                if (!data.success || data.data.length === 0) {
+                
+                if (!data.success) {
+                    searchResults.innerHTML = `<div class="search-result-item text-red-500">${data.message || '搜索失败'}</div>`;
+                    searchResults.style.display = 'block';
+                    return;
+                }
+
+                if (data.data.length === 0) {
                     searchResults.innerHTML = '<div class="search-result-item text-gray-500">未找到匹配股票</div>';
                     searchResults.style.display = 'block';
                     return;
@@ -303,7 +316,7 @@
             }
         });
 
-        // 2. 表单提交处理（移除 refresh_cache 参数）
+        // 2. 表单提交处理
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(form);
@@ -311,8 +324,14 @@
                 ticker: formData.get('ticker').trim(),
                 target_change: parseFloat(formData.get('targetChange')),
                 period: formData.get('period')
-                // 移除 refresh_cache 参数
             };
+
+            // 表单验证
+            if (isNaN(params.target_change)) {
+                errorAlert.textContent = '❌ 目标涨跌幅必须是数字';
+                errorAlert.style.display = 'block';
+                return;
+            }
 
             // 显示加载中，隐藏错误和结果
             loading.style.display = 'block';
@@ -320,14 +339,19 @@
             resultSection.style.display = 'none';
 
             try {
-                // 调用后端分析接口
-                const response = await fetch(`${API_URL}/analyze`, {
+                // 调用 GitHub Functions 分析接口
+                const response = await fetch(ANALYZE_API, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(params)
+                    body: JSON.stringify(params),
+                    timeout: 20000 // 延长超时时间（适配函数冷启动）
                 });
-                const data = await response.json();
 
+                if (!response.ok) {
+                    throw new Error(`接口请求失败（状态码：${response.status}）`);
+                }
+
+                const data = await response.json();
                 if (!data.success) {
                     throw new Error(data.message || '分析失败');
                 }
@@ -360,16 +384,24 @@
 
             // 重置图表加载动画
             document.querySelectorAll('.chart-loading').forEach(el => el.style.display = 'flex');
-            // 填充图表
-            document.getElementById('priceChart').src = result.charts.price_with_signals;
-            document.getElementById('boxplotChart').src = result.charts.boxplot_comparison;
-            document.getElementById('distributionChart').src = result.charts.returns_distribution;
-            document.getElementById('cumulativeChart').src = result.charts.cumulative_returns;
+            // 填充图表（兼容空图表情况）
+            document.getElementById('priceChart').src = result.charts.price_with_signals || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+            document.getElementById('boxplotChart').src = result.charts.boxplot_comparison || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+            document.getElementById('distributionChart').src = result.charts.returns_distribution || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+            document.getElementById('cumulativeChart').src = result.charts.cumulative_returns || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
             // 填充统计表格
             const tableBody = document.getElementById('statsTableBody');
             tableBody.innerHTML = '';
             const sortedPeriods = Object.keys(result.stats).sort((a, b) => a - b);
+            
+            if (sortedPeriods.length === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = `<td colspan="10" class="px-6 py-4 text-center text-gray-500">暂无统计数据</td>`;
+                tableBody.appendChild(emptyRow);
+                return;
+            }
+
             sortedPeriods.forEach(period => {
                 const stats = result.stats[period];
                 const row = document.createElement('tr');
@@ -396,7 +428,9 @@
         function hideChartLoading(loadingId) {
             const loadingEl = document.getElementById(loadingId);
             if (loadingEl) {
-                loadingEl.style.display = 'none';
+                setTimeout(() => {
+                    loadingEl.style.display = 'none';
+                }, 300); // 延迟隐藏，避免闪烁
             }
         }
 
@@ -404,121 +438,163 @@
         exportPdfBtn.addEventListener('click', async () => {
             if (!currentResult) return alert('暂无分析结果可导出');
 
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF('l', 'mm', 'a4'); // 横向A4纸
+            try {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('l', 'mm', 'a4'); // 横向A4纸
+                pdf.setProperties({
+                    title: `${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析报告`,
+                    subject: '股票涨跌幅分析',
+                    author: '股票分析工具（全GitHub部署）'
+                });
 
-            // 添加标题
-            pdf.setFontSize(18);
-            pdf.text(`股票涨跌幅分析报告 - ${currentResult.ticker}`, 10, 20);
+                // 添加标题
+                pdf.setFontSize(18);
+                pdf.text(`股票涨跌幅分析报告 - ${currentResult.ticker}`, 10, 20);
 
-            // 添加概要信息
-            pdf.setFontSize(12);
-            pdf.text('一、分析概要', 10, 40);
-            const summaryText = [
-                `股票代码：${currentResult.ticker}`,
-                `股票名称：${currentResult.ticker_info.shortName || '未知名称'}`,
-                `目标涨跌幅：${currentResult.target_change}%`,
-                `信号点数量：${currentResult.signal_count} 个`,
-                `分析时间范围：${currentResult.date_range.start} 至 ${currentResult.date_range.end}`,
-                `报告生成时间：${currentResult.generated_at}`
-            ];
-            summaryText.forEach((text, index) => {
-                pdf.text(text, 20, 55 + index * 8);
-            });
+                // 添加概要信息
+                pdf.setFontSize(12);
+                pdf.text('一、分析概要', 10, 40);
+                const summaryText = [
+                    `股票代码：${currentResult.ticker}`,
+                    `股票名称：${currentResult.ticker_info.shortName || '未知名称'}`,
+                    `目标涨跌幅：${currentResult.target_change}%`,
+                    `信号点数量：${currentResult.signal_count} 个`,
+                    `分析时间范围：${currentResult.date_range.start} 至 ${currentResult.date_range.end}`,
+                    `报告生成时间：${currentResult.generated_at}`,
+                    `市场区域：${currentResult.ticker_info.region || '未知'}`,
+                    `交易货币：${currentResult.ticker_info.currency || '未知'}`
+                ];
+                summaryText.forEach((text, index) => {
+                    pdf.text(text, 20, 55 + index * 8);
+                });
 
-            // 添加统计表格（转换为图片）
-            pdf.text('二、统计分析结果', 10, 100);
-            const table = document.getElementById('statsTable');
-            await html2canvas(table, { scale: 2 }).then(canvas => {
-                const imgData = canvas.toDataURL('image/png');
-                pdf.addImage(imgData, 'PNG', 10, 110, 270, 80); // 适应A4宽度
-            });
+                // 添加统计表格（转换为图片）
+                pdf.text('二、统计分析结果', 10, 110);
+                const table = document.getElementById('statsTable');
+                await html2canvas(table, { 
+                    scale: 2, 
+                    useCORS: true,
+                    logging: false
+                }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png');
+                    pdf.addImage(imgData, 'PNG', 10, 120, 270, 80); // 适应A4宽度
+                });
 
-            // 添加图表（价格走势）
-            pdf.addPage();
-            pdf.text('三、价格走势与信号点', 10, 20);
-            const priceImg = document.getElementById('priceChart');
-            pdf.addImage(priceImg.src, 'PNG', 10, 30, 270, 120);
+                // 添加价格走势图表
+                pdf.addPage();
+                pdf.text('三、价格走势与信号点', 10, 20);
+                const priceImg = document.getElementById('priceChart');
+                pdf.addImage(priceImg.src, 'PNG', 10, 30, 270, 120);
 
-            // 添加箱线图
-            pdf.addPage();
-            pdf.text('四、不同周期收益率分布（箱线图）', 10, 20);
-            const boxplotImg = document.getElementById('boxplotChart');
-            pdf.addImage(boxplotImg.src, 'PNG', 10, 30, 270, 120);
+                // 添加箱线图
+                pdf.addPage();
+                pdf.text('四、不同周期收益率分布（箱线图）', 10, 20);
+                const boxplotImg = document.getElementById('boxplotChart');
+                pdf.addImage(boxplotImg.src, 'PNG', 10, 30, 270, 120);
 
-            // 添加直方图和累计收益率图
-            pdf.addPage();
-            pdf.text('五、收益率分布直方图', 10, 20);
-            const distImg = document.getElementById('distributionChart');
-            pdf.addImage(distImg.src, 'PNG', 10, 30, 270, 120);
+                // 添加直方图
+                pdf.addPage();
+                pdf.text('五、收益率分布直方图', 10, 20);
+                const distImg = document.getElementById('distributionChart');
+                pdf.addImage(distImg.src, 'PNG', 10, 30, 270, 120);
 
-            pdf.addPage();
-            pdf.text('六、平均累计收益率', 10, 20);
-            const cumImg = document.getElementById('cumulativeChart');
-            pdf.addImage(cumImg.src, 'PNG', 10, 30, 270, 120);
+                // 添加累计收益率图
+                pdf.addPage();
+                pdf.text('六、平均累计收益率', 10, 20);
+                const cumImg = document.getElementById('cumulativeChart');
+                pdf.addImage(cumImg.src, 'PNG', 10, 30, 270, 120);
 
-            // 保存PDF
-            pdf.save(`${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析报告.pdf`);
+                // 保存PDF
+                pdf.save(`${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析报告.pdf`);
+            } catch (error) {
+                console.error('PDF导出失败：', error);
+                alert('PDF导出失败，请刷新页面重试');
+            }
         });
 
         // 6. 导出Excel数据
         exportExcelBtn.addEventListener('click', () => {
             if (!currentResult) return alert('暂无分析结果可导出');
 
-            // 创建工作簿
-            const wb = XLSX.utils.book_new();
+            try {
+                // 创建工作簿
+                const wb = XLSX.utils.book_new();
+                wb.Props = {
+                    Title: `${currentResult.ticker} 涨跌幅分析数据`,
+                    Subject: '股票分析',
+                    Author: '股票分析工具',
+                    CreatedDate: new Date()
+                };
 
-            // 1. 概要信息工作表
-            const summaryData = [
-                ['项目', '值'],
-                ['股票代码', currentResult.ticker],
-                ['股票名称', currentResult.ticker_info.shortName || '未知名称'],
-                ['目标涨跌幅(%)', currentResult.target_change],
-                ['信号点数量', currentResult.signal_count],
-                ['分析开始日期', currentResult.date_range.start],
-                ['分析结束日期', currentResult.date_range.end],
-                ['报告生成时间', currentResult.generated_at],
-                ['市场区域', currentResult.ticker_info.region || '未知'],
-                ['交易货币', currentResult.ticker_info.currency || '未知']
-            ];
-            const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-            XLSX.utils.book_append_sheet(wb, summaryWs, '分析概要');
+                // 1. 概要信息工作表
+                const summaryData = [
+                    ['项目', '值'],
+                    ['股票代码', currentResult.ticker],
+                    ['股票名称', currentResult.ticker_info.shortName || '未知名称'],
+                    ['目标涨跌幅(%)', currentResult.target_change],
+                    ['信号点数量', currentResult.signal_count],
+                    ['分析开始日期', currentResult.date_range.start],
+                    ['分析结束日期', currentResult.date_range.end],
+                    ['报告生成时间', currentResult.generated_at],
+                    ['市场区域', currentResult.ticker_info.region || '未知'],
+                    ['交易货币', currentResult.ticker_info.currency || '未知']
+                ];
+                const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+                XLSX.utils.book_append_sheet(wb, summaryWs, '分析概要');
 
-            // 2. 统计结果工作表
-            const statsHeaders = ['周期(日)', '样本数', '均值(%)', '中位数(%)', '标准差(%)', '最小值(%)', '最大值(%)', '正收益比例(%)', '偏度', '峰度'];
-            const statsData = [statsHeaders];
-            const sortedPeriods = Object.keys(currentResult.stats).sort((a, b) => a - b);
-            sortedPeriods.forEach(period => {
-                const stats = currentResult.stats[period];
-                statsData.push([
-                    period,
-                    stats.count,
-                    stats.mean,
-                    stats.median,
-                    stats.std,
-                    stats.min,
-                    stats.max,
-                    stats.positive_rate,
-                    stats.skewness,
-                    stats.kurtosis
-                ]);
-            });
-            const statsWs = XLSX.utils.aoa_to_sheet(statsData);
-            XLSX.utils.book_append_sheet(wb, statsWs, '统计结果');
-
-            // 3. 原始收益率数据工作表
-            const returnsData = [['周期(日)', '收益率(%)']];
-            sortedPeriods.forEach(period => {
-                const returns = currentResult.future_returns[period];
-                returns.forEach(ret => {
-                    returnsData.push([period, ret.toFixed(2)]);
+                // 2. 统计结果工作表
+                const statsHeaders = ['周期(日)', '样本数', '均值(%)', '中位数(%)', '标准差(%)', '最小值(%)', '最大值(%)', '正收益比例(%)', '偏度', '峰度'];
+                const statsData = [statsHeaders];
+                const sortedPeriods = Object.keys(currentResult.stats).sort((a, b) => a - b);
+                sortedPeriods.forEach(period => {
+                    const stats = currentResult.stats[period];
+                    statsData.push([
+                        period,
+                        stats.count,
+                        stats.mean,
+                        stats.median,
+                        stats.std,
+                        stats.min,
+                        stats.max,
+                        stats.positive_rate,
+                        stats.skewness,
+                        stats.kurtosis
+                    ]);
                 });
-            });
-            const returnsWs = XLSX.utils.aoa_to_sheet(returnsData);
-            XLSX.utils.book_append_sheet(wb, returnsWs, '原始收益率数据');
+                const statsWs = XLSX.utils.aoa_to_sheet(statsData);
+                XLSX.utils.book_append_sheet(wb, statsWs, '统计结果');
 
-            // 保存Excel文件
-            XLSX.writeFile(wb, `${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析数据.xlsx`);
+                // 3. 原始收益率数据工作表
+                const returnsData = [['周期(日)', '收益率(%)']];
+                sortedPeriods.forEach(period => {
+                    const returns = currentResult.future_returns[period];
+                    returns.forEach(ret => {
+                        returnsData.push([period, ret.toFixed(2)]);
+                    });
+                });
+                const returnsWs = XLSX.utils.aoa_to_sheet(returnsData);
+                XLSX.utils.book_append_sheet(wb, returnsWs, '原始收益率数据');
+
+                // 保存Excel文件
+                XLSX.writeFile(wb, `${currentResult.ticker}_涨跌幅${currentResult.target_change}%_分析数据.xlsx`);
+            } catch (error) {
+                console.error('Excel导出失败：', error);
+                alert('Excel导出失败，请刷新页面重试');
+            }
+        });
+
+        // 7. 适配移动端样式
+        window.addEventListener('resize', () => {
+            const chartContainers = document.querySelectorAll('.chart-container');
+            if (window.innerWidth < 768) {
+                chartContainers.forEach(container => {
+                    container.style.height = '300px';
+                });
+            } else {
+                chartContainers.forEach(container => {
+                    container.style.height = '400px';
+                });
+            }
         });
     </script>
 </body>
